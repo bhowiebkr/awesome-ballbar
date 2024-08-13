@@ -6,22 +6,8 @@ from PySide6.QtGui import QPixmap
 
 
 @dataclass
-class FrameData:
-    def __init__(self, pixmap: QPixmap, sample: int, zero: int, text: str) -> None:
+class FastData:
+    def __init__(self, pixmap: QPixmap, sample_pixel_space_value: float, sample_micron_value: float) -> None:
         self.pixmap = pixmap
-        self.sample = sample
-        self.zero = zero
-        self.text = text
-
-
-@dataclass
-class Sample:
-    def __init__(self, x: int, y: float) -> None:
-        self.x = x
-        self.y = y
-        self.linYError = 0.0
-        self.shim = 0.0
-        self.scrape = 0.0
-
-    def __repr__(self) -> str:
-        return f"index: {self.x}, value: ({self.y:.4f})"
+        self.sample_pixel_space_value = sample_pixel_space_value
+        self.sample_micron_value = sample_micron_value

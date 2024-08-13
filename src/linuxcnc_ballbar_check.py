@@ -11,6 +11,11 @@ class BallbarCheck(object):
         self.stat = linuxcnc.stat()
         self.command = linuxcnc.command()
 
+        self.radius = 100  # in mm
+        self.goto_feed = 6000  # goto position feed
+        self.operation_feed = 4000  # operation feed
+        self.num_times = 1  # number of times to run it
+
     def ready(self) -> bool:
         self.stat.poll()
         return (
@@ -24,13 +29,10 @@ class BallbarCheck(object):
         print(cmd)
         self.command.mdi(cmd)
         self.command.wait_complete()  # wait until mode switch executed
+        while not self.ready():
+            continue
 
-    def run(self) -> None:
-        radius = 100  # in mm
-        goto_feed = 1000  # goto position feed
-        operation_feed = 6000  # operation feed
-        num_times = 1  # number of times to run it
-
+    def prep_run(self) -> None:
         self.command.mode(linuxcnc.MODE_MDI)
         self.command.wait_complete()  # wait until mode switch executed
 
@@ -39,22 +41,31 @@ class BallbarCheck(object):
 
         self.cmd("G53 G0 Z1")  # Move Z to the machine safe height offset by 1mm
         self.cmd("G54")  # select the G54 coordinate system
-        self.cmd(f"G0 X{radius} Y0")  # Move in the XY plane to the starting position
-        self.cmd(f"G1 Z0 F{goto_feed}")
+        self.cmd(f"G0 X{self.radius + 1} Y0")  # Move in the XY plane to the starting position
+        self.cmd("G0 Z0")
 
-        # Tell the operator to connect the ballbar
-
+    def do_run(self) -> None:
         # We set the feed that we'll be operating the rotation.
         # We might set this to other speeds depending on what we are measuring
-        self.cmd(f"G1 F{operation_feed}")
+        self.cmd(f"G1 F{self.operation_feed}")
+
+        self.cmd(f"G1 X{self.radius}")  # move in 1.0mm
 
         # Initiate the circular motion
-        self.cmd(f"G03 I-{radius} J0 P{num_times}")
+        self.cmd(f"G03 I-{self.radius} J0 P{self.num_times}")
+
+        self.cmd(f"G1 X{self.radius + 1}")  # move out 1.0mm
+        # self.cmd("G53 G0 Z1")  # Move Z to the machine safe height offset by 1mm
 
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1 and sys.argv[1] == "run":
-        checker = BallbarCheck()
-        checker.run()
+    checker = BallbarCheck()
+
+    mode = sys.argv[1]
+
+    if mode == "prep":
+        checker.prep_run()
+    elif mode == "run":
+        checker.do_run()
     else:
-        print("Usage: python ballbar_check.py run")
+        print(f"error. mode was {mode}")

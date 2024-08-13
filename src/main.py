@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import sys
+from typing import List
 
 import qdarktheme
 from PySide6.QtCore import QSettings
@@ -16,6 +17,7 @@ from PySide6.QtWidgets import QGroupBox
 from PySide6.QtWidgets import QHBoxLayout
 from PySide6.QtWidgets import QLabel
 from PySide6.QtWidgets import QMainWindow
+from PySide6.QtWidgets import QMessageBox
 from PySide6.QtWidgets import QPushButton
 from PySide6.QtWidgets import QSlider
 from PySide6.QtWidgets import QSplitter
@@ -23,7 +25,9 @@ from PySide6.QtWidgets import QVBoxLayout
 from PySide6.QtWidgets import QWidget
 
 from src.Core import Core
+from src.DataClasses import FastData
 from src.Widgets import AnalyserWidget
+from src.Widgets import FloatLineEdit
 from src.Widgets import Graph
 from src.Widgets import PixmapWidget
 
@@ -37,7 +41,7 @@ class CommandWorker(QThread):  # type: ignore
 
     def run(self) -> None:
         os.system(self.command)  # Run the command
-        self.finished.emit()  # Emit signal when done
+        # no need to emit finished as it will by default from the QThread
 
 
 # Define the main window
@@ -58,10 +62,12 @@ class MainWindow(QMainWindow):  # type: ignore
         control_box = QGroupBox("Control")
         plot_box = QGroupBox("Plot")
         commands_box = QGroupBox("Commands")
+        settings_box = QGroupBox("Settings")
+        self.sensor_width = FloatLineEdit()
 
         start_btn = QPushButton("Start")
-        stop_btn = QPushButton("Stop")
-        reset_btn = QPushButton("Reset")
+
+        self.data: List[float] = []
 
         self.analyser_widget = AnalyserWidget()
         self.sensor_feed_widget = PixmapWidget()
@@ -71,16 +77,24 @@ class MainWindow(QMainWindow):  # type: ignore
         self.smoothing.setRange(0, 200)
         self.smoothing.setTickInterval(1)
 
-        self.graph = Graph(self.core.samples)
+        self.graph = Graph()
 
         # Layouts
+        settings_form = QFormLayout()
+        settings_form.addRow("Sensor Width", self.sensor_width)
+
+        settings_layout = QVBoxLayout()
+        settings_layout.addLayout(settings_form)
+        settings_box.setLayout(settings_layout)
+
         control_layout = QHBoxLayout()
         commands_layout = QVBoxLayout()
-        for btn in [start_btn, stop_btn, reset_btn]:
+        for btn in [start_btn]:
             btn.setFixedHeight(60)
             commands_layout.addWidget(btn)
         commands_layout.addStretch()
         commands_box.setLayout(commands_layout)
+        control_layout.addWidget(settings_box)
         control_layout.addWidget(commands_box)
         control_box.setLayout(control_layout)
 
@@ -132,21 +146,55 @@ class MainWindow(QMainWindow):  # type: ignore
         )
         self.core.frameWorker.OnPixmapChanged.connect(self.sensor_feed_widget.setPixmap)
         self.smoothing.valueChanged.connect(lambda value: setattr(self.core.frameWorker, "analyser_smoothing", value))
-        start_btn.clicked.connect(self.run_ballbar)
+        start_btn.clicked.connect(self.prep_ballbar)
+        self.sensor_width.textChanged.connect(self.core.frameWorker.set_sensor_width_mm)
+        self.sensor_width.setText("5.5")
 
         self.load_settings()
 
+    def prep_ballbar(self) -> None:
+        command = "python src/linuxcnc_ballbar_check.py prep"
+
+        # Create and start the worker thread for preparation
+        self.prep_worker = CommandWorker(command)
+        self.prep_worker.finished.connect(self.show_ballbar_message)  # Connect signal to show message
+        self.prep_worker.start()
+
+    def show_ballbar_message(self) -> None:
+        msg_box = QMessageBox()
+        msg_box.setIcon(QMessageBox.Information)
+        msg_box.setWindowTitle("Install Ballbar")
+        msg_box.setText("Please install the ballbar and then click Continue.")
+        msg_box.setStandardButtons(QMessageBox.Ok)
+        continue_button = msg_box.button(QMessageBox.Ok)
+        continue_button.setText("Continue")
+
+        # Show the message box and connect its button click to run_ballbar
+        if msg_box.exec() == QMessageBox.Ok:
+            self.run_ballbar()
+
+    def store_data(self, data: FastData) -> None:
+        self.data.append(data.sample_micron_value)
+
     def run_ballbar(self) -> None:
-        print("starting ballbar check")
+        # Connect up the data feed and store the result
+        self.data = []
+        self.core.frameWorker.OnAnalyserUpdate.connect(self.store_data)
+
         command = "python src/linuxcnc_ballbar_check.py run"
 
-        # Create and start the worker thread
-        self.command_worker = CommandWorker(command)
-        self.command_worker.finished.connect(self.on_command_finished)  # Connect signal to slot
-        self.command_worker.start()
+        # Create and start the worker thread for running the ballbar check
+        self.run_worker = CommandWorker(command)
+        self.run_worker.finished.connect(self.run_finished)  # Connect signal to indicate completion
+        self.run_worker.start()
 
-    def on_command_finished(self) -> None:
-        print("Ballbar check completed.")
+    def run_finished(self) -> None:
+        self.core.frameWorker.OnAnalyserUpdate.disconnect(self.store_data)
+        print("Ballbar check finished.")
+
+        print(f"total samples: {len(self.data)} samples per degree = {len(self.data)/360}")
+
+        self.graph.set_data(self.data)
 
     def load_settings(self) -> None:
         settings = QSettings("awesome-ballbar", "AwesomeBallbar")
@@ -173,8 +221,6 @@ class MainWindow(QMainWindow):  # type: ignore
         # Cleanup the threads
         self.core.workerThread.quit()
         self.core.workerThread.wait()
-        self.core.sampleWorkerThread.quit()
-        self.core.sampleWorkerThread.wait()
 
         # Close the ballbar thread
 

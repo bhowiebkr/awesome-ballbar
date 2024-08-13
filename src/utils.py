@@ -57,3 +57,10 @@ def scale_sample_real_world(sensor_width: int, data_width: int, sample: float, z
         return 0
     # Convert the sample measurement into millimeters using the sensor width, data width, and zero offset.
     return (sensor_width / data_width) * (sample - zero)
+
+
+def sample_to_micron(val: float, sensor_pixel_height: int, sensor_mm_length: float) -> float:
+    pixel_to_mm = sensor_mm_length / sensor_pixel_height  # Convert pixel height to mm
+    sample_in_mm = val * pixel_to_mm  # Convert sample position to mm
+    sample_in_microns = sample_in_mm * -1000  # Convert mm to microns
+    return sample_in_microns

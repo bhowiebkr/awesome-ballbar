@@ -1,30 +1,34 @@
 from __future__ import annotations
 
 from typing import Any
+from typing import List
+from typing import Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from PySide6.QtCore import QRegularExpression
 from PySide6.QtCore import Qt
 from PySide6.QtCore import Signal
 from PySide6.QtGui import QColor
 from PySide6.QtGui import QFont
+from PySide6.QtGui import QKeyEvent
 from PySide6.QtGui import QPainter
 from PySide6.QtGui import QPaintEvent
 from PySide6.QtGui import QPen
 from PySide6.QtGui import QPixmap
+from PySide6.QtGui import QRegularExpressionValidator
 from PySide6.QtGui import QResizeEvent
+from PySide6.QtWidgets import QLineEdit
 from PySide6.QtWidgets import QSizePolicy
 from PySide6.QtWidgets import QTableWidgetItem
 from PySide6.QtWidgets import QVBoxLayout
 from PySide6.QtWidgets import QWidget
-from scipy.interpolate import CubicSpline
 
-from src.DataClasses import FrameData
-from src.DataClasses import Sample
+from src.DataClasses import FastData
 from src.utils import get_units
-from src.utils import units_of_measurements
 
+# from src.DataClasses import Sample
 
 style = {
     "axes.grid": "True",
@@ -50,10 +54,10 @@ plt.style.use(style)
 
 
 class Graph(QWidget):  # type: ignore
-    def __init__(self, samples: list[Sample], padding: float = 0.05):
+    def __init__(self, padding: float = 0.05):
         super().__init__()
 
-        self.samples = samples
+        self.samples: List[float] = []
         self.units = ""
         self.selected_index = 0
         self.padding = padding  # Padding variable
@@ -77,47 +81,51 @@ class Graph(QWidget):  # type: ignore
 
         main_layout.addWidget(self.canvas)
 
-    def set_selected_index(self, index: int) -> None:
-        self.selected_index = index + 1
-        self.update_graph()
-
-    def set_units(self, units: str) -> None:
-        self.units = units
-        self.update_graph()
-
     def update_graph(self) -> None:
         # Clear the axis and plot the data
         self.ax.clear()
 
-        if self.units is None or len(self.samples) == 0:
+        if not self.samples:
             self.canvas.draw()
             return
 
-        unit_multiplier = units_of_measurements[self.units]
+        num_samples = len(self.samples)
+        theta = np.linspace(0, 2 * np.pi, num_samples, endpoint=False)
+        r = np.array(self.samples)
 
-        theta = np.linspace(0, 2 * np.pi, len(self.samples))
-        r = []
+        # Ensure the graph wraps around by appending the first point to the end
+        theta = np.concatenate([theta, [theta[0]]])
+        r = np.concatenate([r, [r[0]]])
 
-        # Raw points
-        for s in self.samples:
-            r.append(s.y * unit_multiplier)
+        # Plot raw data points
         self.ax.plot(theta, r, marker="o", markersize=5, label="Samples")
 
-        # Fit a smooth curve to the data points
-        if len(theta) > 2:
-            f = CubicSpline(theta, r, bc_type="clamped")
-            smooth_theta = np.linspace(theta[0], theta[-1], 500)
-            smooth_r = f(smooth_theta)
-            self.ax.plot(smooth_theta, smooth_r, linewidth=2, label="Smooth")
+        # Adjust radial limits based on data
+        r_min = np.min(r)
+        r_max = np.max(r)
+        r_range = r_max - r_min
+        padding = 0.1 * r_range  # Add some padding around the data
+
+        self.ax.set_ylim(r_min - padding, r_max + padding)
 
         # Plot selected index
-        if type(self.selected_index) is int and self.selected_index >= 0:
-            selected_theta = theta[self.selected_index - 1]
+        if isinstance(self.selected_index, int) and 0 <= self.selected_index < num_samples:
+            selected_theta = theta[self.selected_index]
             self.ax.plot([selected_theta, selected_theta], [0, max(r)], linewidth=7, color="#380000", zorder=-1)
             self.ax.set_alpha(0.2)
 
         self.ax.legend()
         self.canvas.draw()
+
+    def set_data(self, new_samples: List[float]) -> None:
+        """
+        Update the graph with new sample data.
+
+        Args:
+            new_samples (list): A list of float values representing new sample data.
+        """
+        self.samples = new_samples
+        self.update_graph()
 
 
 class PixmapWidget(QWidget):  # type: ignore
@@ -156,7 +164,7 @@ class AnalyserWidget(QWidget):  # type: ignore
         self.pixmap = QPixmap(100, 100)
         self.pixmap.fill(QColor(0, 0, 0))
         self.sample = 0  # location of the sample in pixel space on the widget
-        self.zero = 0  # center of the widget for zero
+        self.zero = 960  # Center of the widget for zero (half of the sensor width)
         self.text = ""  # Text to display shows the distance from zero
         self.sensor_height_mm = sensor_height_mm  # Height of the sensor in mm
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
@@ -186,23 +194,20 @@ class AnalyserWidget(QWidget):  # type: ignore
         if self.text:
             painter.setFont(QFont("Arial", 12))
             painter.setPen(Qt.green)
-            textWidth = painter.fontMetrics().horizontalAdvance(self.text)
-            textHeight = painter.fontMetrics().height()
-            x = (self.width() - textWidth) / 2
-            y = sample_y - (textHeight / 2)
+            text_width = painter.fontMetrics().horizontalAdvance(self.text)
+            text_height = painter.fontMetrics().height()
+            x = (self.width() - text_width) / 2
+            y = sample_y - (text_height / 2)
             painter.drawText(int(x), int(y), self.text)
 
-    def set_data(self, data: FrameData) -> None:
+    def set_data(self, data: FastData) -> None:
         self.pixmap = data.pixmap
-        self.sample = data.sample - self.zero  # Adjust sample relative to zero
 
-        # Calculate the sample position in microns
-        pixel_to_mm = self.sensor_height_mm / self.height()  # Convert pixel height to mm
-        sample_in_mm = self.sample * pixel_to_mm * -1  # Convert sample position to mm
-        sample_in_microns = sample_in_mm * 1000  # Convert mm to microns
+        # Calculate the sample position relative to zero, using the input range (0.0-1920.0)
+        self.sample = self.zero - (data.sample_pixel_space_value * self.height() / 1920.0)
 
         # Update the text to show the distance from zero in microns
-        self.text = f"{sample_in_microns:+.2f} µm"
+        self.text = f"{data.sample_micron_value:+.2f} µm"
         self.update()
 
 
@@ -220,3 +225,35 @@ class TableUnit(QTableWidgetItem):  # type: ignore
         if role == Qt.DisplayRole:
             return get_units(self.units, self.value)
         return None
+
+
+class FloatLineEdit(QLineEdit):  # type: ignore
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        # Set up a regular expression for floating point numbers
+        float_regex = QRegularExpression(r"^-?\d*\.?\d*$")  # Regex to match float numbers
+        self.validator = QRegularExpressionValidator(float_regex, self)
+        self.setValidator(self.validator)
+
+        # Connect textChanged signal to validate input
+        self.textChanged.connect(self.validate_text)
+
+    def validate_text(self) -> None:
+        """Validate the current text to ensure it's a valid float"""
+        text = self.text()
+        if text:
+            try:
+                # Try to convert the text to float
+                float(text)
+                self.setStyleSheet("")  # Clear any error styling
+            except ValueError:
+                # Invalid float; apply error styling
+                self.setStyleSheet("border: 1px solid red;")
+        else:
+            self.setStyleSheet("")  # Clear any error styling if the text is empty
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        """Override to handle key events"""
+        super().keyPressEvent(event)
+        # Validate the text after the key press event
+        self.validate_text()
