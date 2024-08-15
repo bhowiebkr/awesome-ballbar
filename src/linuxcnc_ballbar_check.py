@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 
 import linuxcnc
+import time
 
 
 class BallbarCheck(object):
@@ -11,9 +12,9 @@ class BallbarCheck(object):
         self.stat = linuxcnc.stat()
         self.command = linuxcnc.command()
 
-        self.radius = 100  # in mm
-        self.goto_feed = 6000  # goto position feed
-        self.operation_feed = 4000  # operation feed
+        self.radius = 267.939  # in mm
+        self.goto_feed = 1000  # goto position feed
+        self.operation_feed = 1000  # operation feed
         self.num_times = 1  # number of times to run it
 
     def ready(self) -> bool:
@@ -41,7 +42,10 @@ class BallbarCheck(object):
 
         self.cmd("G53 G0 Z1")  # Move Z to the machine safe height offset by 1mm
         self.cmd("G54")  # select the G54 coordinate system
-        self.cmd(f"G0 X{self.radius + 1} Y0")  # Move in the XY plane to the starting position
+        self.cmd(
+            f"G0 X{self.radius + 1} Y0"
+        )  # Move in the XY plane to the starting position
+
         self.cmd("G0 Z0")
 
     def do_run(self) -> None:
@@ -49,12 +53,25 @@ class BallbarCheck(object):
         # We might set this to other speeds depending on what we are measuring
         self.cmd(f"G1 F{self.operation_feed}")
 
+        time.sleep(1)
+
         self.cmd(f"G1 X{self.radius}")  # move in 1.0mm
 
         # Initiate the circular motion
         self.cmd(f"G03 I-{self.radius} J0 P{self.num_times}")
 
         self.cmd(f"G1 X{self.radius + 1}")  # move out 1.0mm
+
+        time.sleep(1)
+
+        self.cmd(f"G1 X{self.radius}")  # move out 1.0mm
+
+        self.cmd(f"G02 I-{self.radius} J0 P{self.num_times}")
+
+        self.cmd(f"G1 X{self.radius + 1}")  # move out 1.0mm
+
+        time.sleep(1)
+
         # self.cmd("G53 G0 Z1")  # Move Z to the machine safe height offset by 1mm
 
 
