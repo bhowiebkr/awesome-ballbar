@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import pickle
 import sys
 from typing import List
 
@@ -12,6 +13,7 @@ from PySide6.QtCore import Signal
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import QApplication
 from PySide6.QtWidgets import QComboBox
+from PySide6.QtWidgets import QFileDialog
 from PySide6.QtWidgets import QFormLayout
 from PySide6.QtWidgets import QGroupBox
 from PySide6.QtWidgets import QHBoxLayout
@@ -25,13 +27,12 @@ from PySide6.QtWidgets import QVBoxLayout
 from PySide6.QtWidgets import QWidget
 
 from src.Core import Core
+from src.data_filtering import filter_and_isolate_data
 from src.DataClasses import FastData
 from src.Widgets import AnalyserWidget
 from src.Widgets import FloatLineEdit
 from src.Widgets import Graph
 from src.Widgets import PixmapWidget
-
-import pickle
 
 
 class CommandWorker(QThread):  # type: ignore
@@ -78,6 +79,8 @@ class MainWindow(QMainWindow):  # type: ignore
         self.smoothing = QSlider(Qt.Horizontal)
         self.smoothing.setRange(0, 200)
         self.smoothing.setTickInterval(1)
+        save_btn = QPushButton("Save")
+        load_btn = QPushButton("Load")
 
         self.graph = Graph()
 
@@ -87,6 +90,8 @@ class MainWindow(QMainWindow):  # type: ignore
 
         settings_layout = QVBoxLayout()
         settings_layout.addLayout(settings_form)
+        settings_layout.addWidget(save_btn)
+        settings_layout.addWidget(load_btn)
         settings_box.setLayout(settings_layout)
 
         control_layout = QHBoxLayout()
@@ -142,32 +147,43 @@ class MainWindow(QMainWindow):  # type: ignore
 
         # Signals
         self.core.frameWorker.OnAnalyserUpdate.connect(self.analyser_widget.set_data)
+        self.sensor_feed_widget.OnHeightChanged.connect(self.analyser_widget.setMaximumHeight)
         self.sensor_feed_widget.OnHeightChanged.connect(
-            self.analyser_widget.setMaximumHeight
-        )
-        self.sensor_feed_widget.OnHeightChanged.connect(
-            lambda value: setattr(
-                self.core.frameWorker, "analyser_widget_height", value
-            )
+            lambda value: setattr(self.core.frameWorker, "analyser_widget_height", value)
         )
         self.core.frameWorker.OnPixmapChanged.connect(self.sensor_feed_widget.setPixmap)
-        self.smoothing.valueChanged.connect(
-            lambda value: setattr(self.core.frameWorker, "analyser_smoothing", value)
-        )
+        self.smoothing.valueChanged.connect(lambda value: setattr(self.core.frameWorker, "analyser_smoothing", value))
         start_btn.clicked.connect(self.prep_ballbar)
         self.sensor_width.textChanged.connect(self.core.frameWorker.set_sensor_width_mm)
         self.sensor_width.setText("5.5")
 
+        load_btn.clicked.connect(self.load_data_gui)
+
         self.load_settings()
+
+        # DEBUGGING
+        self.load_pickle("/home/howard/Documents/awesome-ballbar/ballbar_04.pkl")
+
+    def load_data_gui(self):
+        """Open a file dialog to select a pickle file and load its content into self.data."""
+        file_path, _ = QFileDialog.getOpenFileName(self, "Open Pickle File", "", "Pickle Files (*.pkl);;All Files (*)")
+        if file_path:
+            print(f"loading file: {file_path}")
+            self.load_pickle(file_path)
+
+    def load_pickle(self, file_path):
+        """Load data from a pickle file into self.data."""
+        with open(file_path, "rb") as file:
+            self.data = pickle.load(file)
+
+        self.update_graph()
 
     def prep_ballbar(self) -> None:
         command = "python src/linuxcnc_ballbar_check.py prep"
 
         # Create and start the worker thread for preparation
         self.prep_worker = CommandWorker(command)
-        self.prep_worker.finished.connect(
-            self.show_ballbar_message
-        )  # Connect signal to show message
+        self.prep_worker.finished.connect(self.show_ballbar_message)  # Connect signal to show message
         self.prep_worker.start()
 
     def show_ballbar_message(self) -> None:
@@ -195,20 +211,16 @@ class MainWindow(QMainWindow):  # type: ignore
 
         # Create and start the worker thread for running the ballbar check
         self.run_worker = CommandWorker(command)
-        self.run_worker.finished.connect(
-            self.run_finished
-        )  # Connect signal to indicate completion
+        self.run_worker.finished.connect(self.run_finished)  # Connect signal to indicate completion
         self.run_worker.start()
 
     def run_finished(self) -> None:
         self.core.frameWorker.OnAnalyserUpdate.disconnect(self.store_data)
         print("Ballbar check finished.")
 
-        print(
-            f"total samples: {len(self.data)} samples per degree = {len(self.data)/360}"
-        )
+        print(f"total samples: {len(self.data)} samples per degree = {len(self.data)/360}")
 
-        self.graph.set_data(self.data)
+        self.update_graph()
 
         # Base filename
         base_filename = "ballbar_"
@@ -226,23 +238,30 @@ class MainWindow(QMainWindow):  # type: ignore
         with open(filename, "wb") as file:
             pickle.dump(self.data, file)
 
+    def update_graph(self):
+        threshold = 700
+        isolated_data = filter_and_isolate_data(self.data, threshold)
+
+        clockwise = isolated_data["clockwise"][0]
+        clockwise.reverse()
+        counterclockwise = isolated_data["counterclockwise"][0]
+
+        print("Clockwise Data:", len(clockwise))
+        print("Counterclockwise Data:", len(counterclockwise))
+
+        self.graph.set_data(clockwise, counterclockwise)
+
     def load_settings(self) -> None:
         settings = QSettings("awesome-ballbar", "AwesomeBallbar")
         if settings.contains("geometry"):
             self.restoreGeometry(settings.value("geometry"))
 
         if settings.contains("left_splitter"):
-            self.left_splitter.setSizes(
-                [int(i) for i in settings.value("left_splitter")]
-            )
+            self.left_splitter.setSizes([int(i) for i in settings.value("left_splitter")])
         if settings.contains("middle_splitter"):
-            self.middle_splitter.setSizes(
-                [int(i) for i in settings.value("middle_splitter")]
-            )
+            self.middle_splitter.setSizes([int(i) for i in settings.value("middle_splitter")])
         if settings.contains("right_splitter"):
-            self.right_splitter.setSizes(
-                [int(i) for i in settings.value("right_splitter")]
-            )
+            self.right_splitter.setSizes([int(i) for i in settings.value("right_splitter")])
         if settings.contains("smoothing"):
             self.smoothing.setValue(int(settings.value("smoothing")))
 

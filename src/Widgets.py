@@ -53,13 +53,13 @@ style = {
 plt.style.use(style)
 
 
-class Graph(QWidget):  # type: ignore
+class Graph(QWidget):
     def __init__(self, padding: float = 0.05):
         super().__init__()
 
-        self.samples: List[float] = []
+        self.samples1: List[float] = []
+        self.samples2: List[float] = []
         self.units = ""
-        self.selected_index = 0
         self.padding = padding  # Padding variable
 
         # Layouts
@@ -85,46 +85,48 @@ class Graph(QWidget):  # type: ignore
         # Clear the axis and plot the data
         self.ax.clear()
 
-        if not self.samples:
+        if not self.samples1 and not self.samples2:
             self.canvas.draw()
             return
 
-        num_samples = len(self.samples)
-        theta = np.linspace(0, 2 * np.pi, num_samples, endpoint=False)
-        r = np.array(self.samples)
+        num_samples1 = len(self.samples1)
+        num_samples2 = len(self.samples2)
+        theta1 = np.linspace(0, 2 * np.pi, num_samples1, endpoint=False)
+        theta2 = np.linspace(0, 2 * np.pi, num_samples2, endpoint=False)
+        r1 = np.array(self.samples1)
+        r2 = np.array(self.samples2)
 
         # Ensure the graph wraps around by appending the first point to the end
-        theta = np.concatenate([theta, [theta[0]]])
-        r = np.concatenate([r, [r[0]]])
+        theta1 = np.concatenate([theta1, [theta1[0]]])
+        r1 = np.concatenate([r1, [r1[0]]])
+        theta2 = np.concatenate([theta2, [theta2[0]]])
+        r2 = np.concatenate([r2, [r2[0]]])
 
-        # Plot raw data points
-        self.ax.plot(theta, r, marker="o", markersize=5, label="Samples")
+        # Plot data points for both datasets
+        self.ax.plot(theta1, r1, marker="", markersize=5, label="Counterclockwise", color="blue")
+        self.ax.plot(theta2, r2, marker="", markersize=5, label="Clockwise", color="red")
 
         # Adjust radial limits based on data
-        r_min = np.min(r)
-        r_max = np.max(r)
+        r_min = min(np.min(r1), np.min(r2))
+        r_max = max(np.max(r1), np.max(r2))
         r_range = r_max - r_min
         padding = 0.1 * r_range  # Add some padding around the data
 
         self.ax.set_ylim(r_min - padding, r_max + padding)
 
-        # Plot selected index
-        if isinstance(self.selected_index, int) and 0 <= self.selected_index < num_samples:
-            selected_theta = theta[self.selected_index]
-            self.ax.plot([selected_theta, selected_theta], [0, max(r)], linewidth=7, color="#380000", zorder=-1)
-            self.ax.set_alpha(0.2)
-
         self.ax.legend()
         self.canvas.draw()
 
-    def set_data(self, new_samples: List[float]) -> None:
+    def set_data(self, new_samples1: List[float], new_samples2: List[float]) -> None:
         """
-        Update the graph with new sample data.
+        Update the graph with two sets of sample data.
 
         Args:
-            new_samples (list): A list of float values representing new sample data.
+            new_samples1 (list): A list of float values representing the first set of sample data.
+            new_samples2 (list): A list of float values representing the second set of sample data.
         """
-        self.samples = new_samples
+        self.samples1 = new_samples1
+        self.samples2 = new_samples2
         self.update_graph()
 
 

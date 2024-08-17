@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import sys
+import time
 
 import linuxcnc
-import time
 
 
 class BallbarCheck(object):
@@ -42,9 +42,7 @@ class BallbarCheck(object):
 
         self.cmd("G53 G0 Z1")  # Move Z to the machine safe height offset by 1mm
         self.cmd("G54")  # select the G54 coordinate system
-        self.cmd(
-            f"G0 X{self.radius + 1} Y0"
-        )  # Move in the XY plane to the starting position
+        self.cmd(f"G0 X{self.radius + 1} Y0")  # Move in the XY plane to the starting position
 
         self.cmd("G0 Z0")
 
