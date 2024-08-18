@@ -6,3 +6,6 @@ The Open-Source Ball Bar Tool is designed to assist in the calibration and preci
 This tool is currently very WIP!
 
 ![Awesome Ballbar GUI](images/awesome_ballbar_gui_WIP.png)
+
+YouTube video:
+[![DIY ballbar](https://img.youtube.com/vi/xbM0I1bafhM/maxresdefault.jpg)](https://youtu.be/xbM0I1bafhM)
