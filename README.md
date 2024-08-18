@@ -10,4 +10,4 @@ This tool is currently very WIP!
 YouTube video:
 [![DIY ballbar](https://img.youtube.com/vi/xbM0I1bafhM/maxresdefault.jpg)](https://youtu.be/xbM0I1bafhM)
 
-3d printed files found at: [!diy-ball-bar-for-cnc-machine-laser-webcam-and-flex](https://www.printables.com/model/978716-diy-ball-bar-for-cnc-machine-laser-webcam-and-flex)
+3d printed files found at: ![diy-ball-bar-for-cnc-machine-laser-webcam-and-flex](https://www.printables.com/model/978716-diy-ball-bar-for-cnc-machine-laser-webcam-and-flex)
